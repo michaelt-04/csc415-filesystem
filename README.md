@@ -234,18 +234,14 @@ Blocks 41+:        User data (directories and files)
 ## Authors
 
 **Team: Debug Thugs**
-- Randy Chen (922525848)
-- Michael Thompson (922707016)
-- Eric Ahsue (922711514)
-- Utku Tarhan (918371654)
+- Randy Chen 
+- Michael Thompson 
+- Eric Ahsue 
+- Utku Tarhan 
 
-**Course**: CSC-415 Operating Systems - Spring 2025
-**Institution**: San Francisco State University
+**Course**: CSC-415 Operating Systems - Spring 2025   
+**Institution**: San Francisco State University   
 **Instructor**: Professor Bierman
-
-## License
-
-This project is licensed under the terms in the LICENSE file.
 
 ## Acknowledgments
 
