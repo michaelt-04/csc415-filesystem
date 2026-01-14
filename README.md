@@ -1,195 +1,253 @@
-# CSC415 Group Term Assignment - File System
+# CSC 415 File System
 
-This is a GROUP assignment written in C.  Only one person on the team needs to submit the project.
+A complete Unix-like file system implementation in C, featuring hierarchical directory structures, persistent storage, bitmap-based free space management, and buffered file I/O operations.
 
-**Assignment Purpose and Learning Outcomes:**
-- Large scale project planning
-- Working in groups
-- Understanding the file system
-- Understanding of low level file functionality
-- Multi-Phased Project (multiple due dates)
-- Advanced buffering
-- Freespace allocation and release management
-- Persistence
-- Directory structures
-- Tracking file information 
+## Overview
 
-**Let me remind you of the general expectations for all projects:** 
-- All projects are done in C in the Ubuntu Linux Virtual Machine.
-- Code must be neat, with proper and consistent indentation and well documented. 
-- Keep line to around 80 characters per line, and not line greater than 100 characters.
-- Comments must describe the logic and reason for the code and not repeat the code.  
-- Variables must have meaningful names and be in a consistent format (I do not care if you use camelCase or under_scores in variables but be consistent.
-- You must use `make` to compile the program.
-- You must use `make run` (sometimes with RUNOPTIONS) to execute the program.
-- In addition, each file must have the standard header as defined below.
-- All source files and writeup must be in the main branch of the github.
+This project implements a fully functional file system from scratch, built on top of a simulated block storage device. The file system provides standard Unix-like operations including file and directory management, navigation, and persistent data storage across sessions. It demonstrates core operating systems concepts including:
 
-Each .c and .h file must have a standard header as defined below.  Make sure to put in your section number (replace the #), your name, your student IDs, a proper project name, GitHub name, Group name, filename, and description of the project.  Do not alter the number of asterisks and ensure that the header starts on line 1 of the file.
+- Volume management and formatting
+- Free space allocation and deallocation
+- Directory hierarchy and path resolution
+- Buffered file I/O with seek operations
+- Metadata tracking (timestamps, permissions, file sizes)
+- Data persistence using LBA (Logical Block Addressing)
 
-```
-/**************************************************************
-* Class::  CSC-415-0# Spring 2025
-* Name::
-* Student IDs::
-* GitHub-Name::
-* Group-Name::
-* Project:: Basic File System
-*
-* File:: <name of this file>
-*
-* Description::
-*
-**************************************************************/
-```
+The file system operates on a virtual volume file, simulating a physical disk with configurable size and block size parameters.
 
+## Architecture
 
+### Core Components
 
-Your team have been designing components of a file system.  You have defined the goals and designed the directory entry structure, the volume structure and the free space.  Now it is time to implement your file system.
+#### 1. Volume Control Block (VCB)
+Located at block 0, the VCB contains critical metadata about the entire file system:
+- Volume name and signature for validation
+- Block size (512 bytes) and total block count
+- Starting locations for the free space bitmap and root directory
+- Used to determine if a volume is already formatted or needs initialization
 
-While each of you can have your own github, only one is what you use for the project to be turned in.  Make sure to list that one on the writeups.
+#### 2. Free Space Management
+A bitmap-based allocation system occupying blocks 1-40:
+- Each bit represents one block's availability (0 = free, 1 = used)
+- Supports allocation of contiguous or scattered blocks
+- Persistent across sessions - written to disk after every allocation/deallocation
+- Reserves the first 41 blocks for system use (VCB + bitmap)
 
-The project is in three phases.  The first phase is the "formatting" the volume.  This is further described in the steps for phase one and the phase one assignment.
+#### 3. Directory Structure
+Hierarchical directory system with fixed-size directory entries:
+- Each directory contains 32 entries (de_struct)
+- Directory entries include `.` (self) and `..` (parent) for navigation
+- Each entry stores: filename (256 chars), size, mode/permissions, block locations, timestamps
+- Directories are stored as files containing arrays of directory entries
+- Supports both absolute and relative path resolution
 
-The second phase is the implementation of the directory based functions.  See Phase two assignment.
+#### 4. File Operations (Buffered I/O)
+Efficient file access through buffering:
+- File Control Blocks (FCB) track open files with 512-byte buffers
+- Supports standard operations: open, read, write, seek, close
+- Open flags: O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND
+- Files can grow dynamically up to 182 blocks (~90 KB)
 
-The final phase is the implementation of the file operations.
+#### 5. Low-Level Storage Interface
+Block-level I/O abstraction:
+- LBAread/LBAwrite functions for reading/writing 512-byte blocks
+- All file system data persists in a single volume file on the host OS
+- Simulates physical disk operations
 
-To help I have written the low level LBA based read and write.  The routines are in fsLow.o, the necessary header for you to include file is fsLow.h.  You do NOT need to understand the code in fsLow, but you do need to understand the header file and the functions.  There are 2 key functions:
+### Data Structures
 
-
-
-`uint64_t LBAwrite (void * buffer, uint64_t lbaCount, uint64_t lbaPosition);`
-
-`uint64_t LBAread (void * buffer, uint64_t lbaCount, uint64_t lbaPosition);`
-
-LBAread and LBAwrite take a buffer, a count of LBA blocks and the starting LBA block number (0 based).  The buffer must be large enough for the number of blocks * the block size.
-
-On return, these function returns the number of **blocks** read or written.
-
-
-
-In addition, I have written a hexdump utility that will allow you to analyze your volume file in the Hexdump subdirectory.
-
-**Your assignment is to write a file system!** 
-
-You will need to format your volume, create and maintain a free space management system, initialize a root directory and maintain directory information, create, read, write, and delete files, and display info.  See below for specifics.
-
-I have provided an initial “main” (fsShell.c) that will be the driver to test you file system.  Your group can modifiy this driver as needed.   The driver will be interactive (with all built in commands) to list directories, create directories, add and remove files, copy files, move files, and two “special commands” one to copy from the normal filesystem to your filesystem and the other from your filesystem to the normal filesystem.
-
-You should modify this driver as needed for your filesystem, adding the display/setting of any additional meta data, and other functions you want to add.
-
-The shell also calls two function in the file fsInit.c `initFileSystem` and `exitFileSystem` which are routines for you to fill in with whatever initialization and exit code you need for your file system.  
-
-Some specifics - you need to provide the following interfaces:
-
-```
-b_io_fd b_open (char * filename, int flags);
-int b_read (b_io_fd fd, char * buffer, int count);
-int b_write (b_io_fd fd, char * buffer, int count);
-int b_seek (b_io_fd fd, off_t offset, int whence);
-int b_close (b_io_fd fd);
-
+**Directory Entry (de_struct)**
+```c
+typedef struct de_struct {
+    char file_name[256];                    // Filename (max 255 characters)
+    size_t size;                            // Size in bytes
+    mode_t mode;                            // Permissions
+    int blocks_allocated[182];              // Array of block numbers
+    int blocks_count;                       // Number of blocks used
+    time_t date_created;                    // Creation timestamp
+    time_t date_modified;                   // Last modified timestamp
+    int is_directory;                       // 1 = directory, 0 = file
+} de_struct;
 ```
 
-Note that the function are similar to the b_read you have done, there is a signifigant difference since you now write the function to find the file information.  
-You have to have methods of locating files, and knowing which logical block addresses are associated with the file.
-
-The Open command must support the following flags:
-```
-O_CREAT   - Creates a new file is it does not exist (ignored if the file does exist)
-O_TRUNC   - Set the file length to 0 (truncates all data)
-O_APPEND  - Sets the file position to the end of the file (Same as doing a seek 0 from SEEK_END)
-O_RDONLY  - File can only do read/seek operations
-O_WRONLY  - File can only do write/seek operations
-O_RDWR    - File can be read or written to
-```
-
-Directory Functions - see [https://www.thegeekstuff.com/2012/06/c-directory/](https://www.thegeekstuff.com/2012/06/c-directory/) for reference.
-
-```
-int fs_mkdir(const char *pathname, mode_t mode);
-int fs_rmdir(const char *pathname);
-fdDir * fs_opendir(const char *pathname);
-struct fs_diriteminfo *fs_readdir(fdDir *dirp);
-int fs_closedir(fdDir *dirp);
-
-char * fs_getcwd(char *pathbuffer, size_t size);
-int fs_setcwd(char * pathname);   //linux chdir
-int fs_isFile(char * filename);	//return 1 if file, 0 otherwise
-int fs_isDir(char * pathname);		//return 1 if directory, 0 otherwise
-int fs_delete(char* filename);	//removes a file
-
-// This is NOT the directory entry, it is JUST for readdir.
-struct fs_diriteminfo
-    {
-    unsigned short d_reclen;    /* length of this record */
-    unsigned char fileType;    
-    char d_name[256]; 			/* filename max filename is 255 characters */
-    };
-```
-Finally file stats - not all the fields in the structure are needed for this assingment
-
-```
-int fs_stat(const char *filename, struct fs_stat *buf);
-
-struct fs_stat
-    {
-    off_t     st_size;    		/* total size, in bytes */
-    blksize_t st_blksize; 		/* blocksize for file system I/O */
-    blkcnt_t  st_blocks;  		/* number of 512B blocks allocated */
-    time_t    st_accesstime;   	/* time of last access */
-    time_t    st_modtime;   	/* time of last modification */
-    time_t    st_createtime;   	/* time of last status change */
-	
-    * add additional attributes here for your file system */
-    };
-
+**Volume Control Block (vcb_struct)**
+```c
+typedef struct vcb_struct {
+    char volume_name[64];                   // Volume identifier
+    size_t block_size;                      // Bytes per block (512)
+    int block_count;                        // Total blocks in volume
+    int freespace_list_start;               // Bitmap starting block
+    int root_dir_start;                     // Root directory location
+    long long signature;                    // Validation signature
+} vcb_struct;
 ```
 
-These interfaces will also be provided to you in mfs.h.
+## Key Features
 
-**Note:** You will need to modify mfs.h for the fdDIR strucutre to be what your file system need to maintain and track interation through the directory structure.
+### Persistence
+- File system state survives across program restarts
+- Volume signature verification on startup
+- Automatic loading of existing volumes or formatting new ones
 
-A shell program designed to demonstrate your file system called fsshell.c is proviced.  It has a number of built in functions that will work if you implement the above interfaces, these are:
+### Free Space Management
+- Bitmap tracks all blocks in the volume
+- First-fit allocation strategy
+- Automatic rollback on allocation failures
+- Blocks are zeroed when freed for security
+
+### Directory Operations
+- Create and remove directories (mkdir, rmdir)
+- Navigate directories with absolute or relative paths
+- Current working directory (cwd) tracking
+- List directory contents with metadata
+
+### File Operations
+- Create, read, write, and delete files
+- Random access with seek operations (SEEK_SET, SEEK_CUR, SEEK_END)
+- Buffered I/O for efficient access
+- Multiple open modes with flag support
+
+### Path Resolution
+- Supports both absolute (`/dir/file`) and relative (`../dir/file`) paths
+- Handles `.` (current) and `..` (parent) directory entries
+- Path parsing with parent directory tracking
+
+## Supported Commands
+
+The file system includes an interactive shell (`fsshell`) with the following commands:
+
+| Command | Description |
+|---------|-------------|
+| `ls [path]` | List files and directories |
+| `cp <source> <dest>` | Copy a file within the file system |
+| `mv <source> <dest>` | Move/rename a file or directory |
+| `md <dirname>` | Create a new directory (mkdir) |
+| `rm <path>` | Remove a file or directory |
+| `touch <filename>` | Create an empty file |
+| `cat <filename>` | Display file contents |
+| `cp2l <fs_path> <linux_path>` | Copy file from file system to Linux |
+| `cp2fs <linux_path> <fs_path>` | Copy file from Linux to file system |
+| `cd <path>` | Change current directory |
+| `pwd` | Print current working directory |
+| `history` | Display command history |
+| `help` | Show available commands |
+| `exit` / `quit` | Exit the shell |
+
+## How to Run
+
+### Prerequisites
+- GCC compiler
+- Linux/Unix environment (or WSL on Windows)
+- readline library
+
+### Building the Project
+
+```bash
+# Compile the file system
+make
+
+# Run with default parameters (10MB volume, 512-byte blocks)
+make run
+
+# Run with custom parameters
+./fsshell <volume_file> <volume_size> <block_size>
+
+# Example: Create a 5MB volume
+./fsshell MyVolume 5000000 512
+
+# Clean build artifacts
+make clean
 ```
-ls - Lists the file in a directory
-cp - Copies a file - source [dest]
-mv - Moves a file - source dest
-md - Make a new directory
-rm - Removes a file or directory
-touch - creates a file
-cat - (limited functionality) displays the contents of a file
-cp2l - Copies a file from the test file system to the linux file system
-cp2fs - Copies a file from the Linux file system to the test file system
-cd - Changes directory
-pwd - Prints the working directory
-history - Prints out the history
-help - Prints out help
+
+### Volume Parameters
+- **volume_file**: Name of the file to use as the virtual disk
+- **volume_size**: Total size in bytes (500,000 to 10,000,000 recommended)
+- **block_size**: Size of each block in bytes (must be 512)
+
+### First Run
+On first execution with a new volume file, the system will:
+1. Format the volume and initialize the VCB
+2. Create the free space bitmap
+3. Initialize the root directory
+4. Set current working directory to root (`/`)
+
+On subsequent runs, it will:
+1. Detect the existing signature
+2. Load the VCB and free space map
+3. Load the root directory
+4. Resume from the previous state
+
+## Implementation Details
+
+### File System Layout
+```
+Block 0:           Volume Control Block (VCB)
+Blocks 1-40:       Free Space Bitmap
+Blocks 41+:        User data (directories and files)
 ```
 
+### Directory Entry Storage
+- Each directory contains 32 entries
+- Directories occupy 64 blocks (32 entries × 1024 bytes / 512 bytes per block)
+- First two entries always reserved for `.` and `..`
 
-This is deliberately vague, as it is dependent on your filesystem design.  And this all you may get initially for a real-world assignment, so if you have questions, please ask.
+### File Size Limits
+- Maximum file size: ~90 KB (182 blocks × 512 bytes)
+- Maximum filename length: 255 characters
+- Maximum path length: 256 characters
+- Maximum open files: 20 (configurable via MAXFCBS)
 
-We will discuss some of this in class.
+## Project Structure
 
-For our purposes use 10,000,000 or less (minimum 500,000) bytes for the volume size and 512 bytes per sector.  These are the values to pass into startPartitionSystem.
+```
+.
+├── fsshell.c           # Interactive shell and main driver
+├── fsInit.c            # File system initialization and formatting
+├── mfs.c/h             # Directory operations and file system interface
+├── b_io.c/h            # Buffered file I/O operations
+├── freeSpace.c/h       # Free space bitmap management
+├── fsLow.h             # Low-level LBA read/write interface
+├── fsLow.o             # Precompiled LBA implementation (x86_64)
+├── fsLowM1.o           # Precompiled LBA implementation (ARM64)
+├── Makefile            # Build configuration
+└── Hexdump/            # Utility for analyzing volume files
 
-What needs to be submitted (via GitHub):
+```
 
-* 	All source files (.c and .h)
-* 	Modified Driver program (must be a program that just utilizes the header file for your file system).
-* 	The Driver program must be named:  `fsshell.c` (as provided)
-* 	A make file (named “Makefile”) to build your entire program
- 
-* A PDF writeup on project that should include (this is also submitted in **Canvas**):
-	* The github link for your group submission.
-	* The plan/approach for each phase and changes made
-	* A description of your file system
-	* A list of exactly which shell commands work and don't work or limitations
-	* Issues you had
-	* Details of how each of your functions work
- 	* A detailed table of who worked on what, down to the individual function level
-	* Screen shots showing each of the commands listed above
-* 	Your volume file (limit 10MB)
-*  There will also be an INDIVIDUAL report (form) to complete.
+## Technical Highlights
+
+### Robust Error Handling
+- Validates all disk I/O operations
+- Checks for allocation failures and rolls back on errors
+- Prevents corruption of system-reserved blocks
+
+### Memory Management
+- Careful allocation and deallocation of buffers
+- Cleanup on exit to prevent memory leaks
+- Buffer reuse for efficiency
+
+### Consistency
+- Free space bitmap synchronized with disk after every operation
+- Directory metadata updated atomically
+- File system state always consistent on disk
+
+## Authors
+
+**Team: Debug Thugs**
+- Randy Chen (922525848)
+- Michael Thompson (922707016)
+- Eric Ahsue (922711514)
+- Utku Tarhan (918371654)
+
+**Course**: CSC-415 Operating Systems - Spring 2025
+**Institution**: San Francisco State University
+**Instructor**: Professor Bierman
+
+## License
+
+This project is licensed under the terms in the LICENSE file.
+
+## Acknowledgments
+
+- Low-level LBA implementation provided by Professor Bierman
+- Project structure based on CSC 415 File System assignment specifications
